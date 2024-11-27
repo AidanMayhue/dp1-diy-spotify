@@ -1,13 +1,18 @@
 # Data Project 1: DIY Spotify
 
-In this project you will build a homemade, web-based music player that resembles Spotify. This will demonstrate your ability to (1) organize and create data files according to a schema; (2) ingest those data using modern techniques; (3) store each song's metadata in a relational database; and (4) expose that data in an API endpoint.
+In this project you will build a homemade, web-based music player that resembles Spotify. This will demonstrate your ability to (1) organize and create data files according to a schema; (2) ingest those data using cloud-native techniques; (3) store each song's metadata in a relational database; and (4) expose that data in an API endpoint.
 
 - Explore a sample [**Frontend**](http://nem2p-dp1-spotify.s3-website-us-east-1.amazonaws.com/) of this project.
   
-- Explore two sample **API Endpoints** for this project:
+- Explore two sample **API Resources** for this project:
   - [**Songs**](https://bv1e9klemd.execute-api.us-east-1.amazonaws.com/api/songs)
   - [**Genres**](https://bv1e9klemd.execute-api.us-east-1.amazonaws.com/api/genres)
 
+> **UPDATE**: Look for the word "UPDATE" below to see new notes and comments, as well as a series of videos walking you through any particularly difficult step of this project. There's even a [**playlist of these videos**](https://www.youtube.com/watch?v=XhTvEHg1esE&list=PLxBq1F-c5mHqfYh3xQQkKv14x-8v-vjAx) available. But try your best to complete as many steps on your own as possible.
+> 
+> Keep in mind the goal of Data Projects is not mastery over all of these technical pieces, but practice putting together an end-to-end solution with a lot of moving parts.
+>
+> Also [refer to this FAQ](FAQ.md) of common problems, errors, and mistakes we are seeing among students.
 
 ## STEP ZERO - Overview
 
@@ -111,11 +116,11 @@ An example:
   "year": 2020
 }
 ```
-Each song package (all 3 files) must contain five data points: `title`, `album`, `artist`, and the integers of the song's `genre` (according to the genres API above) and `year`.
+Each song's metadata file must contain five data points: `title`, `album`, `artist`, and the integers of the song's `genre` (according to the genres API above) and `year`.
 
 - - -
 
-Your first task is to collect at least ten (10) songs and create their associated metadata files.
+Your first task is to collect at least ten (10) songs and create their associated metadata files. You can create these by hand - gathering the right MP3 file and image, and hand-typing the JSON metadata file.
 
 1. **MP3 files** - can be created from YouTube videos using tools such as [this](https://ezmp3.cc/).
 2. **Metadata JSON files** - can be written by hand using the schema above.
@@ -133,7 +138,7 @@ Open the link below in a new browser tab:
 
 **BE SURE TO LAUNCH YOUR STACK IN THE `us-east-1` REGION WITHIN AWS.** This will not deploy in another region.
 
-[![S3 Bucket served through CloudFront cache](https://raw.githubusercontent.com/nmagee/aws-snippets/main/images/launch-stack.png)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?stackName=dp1&templateURL=https://s3.amazonaws.com/ds2022-resources/dp/dp1-fullstack.yaml) - Data Project 1 Resources [Template](templates/dp1-fullstack.yaml)
+[![S3 Bucket served through CloudFront cache](https://raw.githubusercontent.com/nmagee/aws-snippets/main/images/launch-stack.png)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?stackName=dp1&templateURL=https://s3.amazonaws.com/ds2022-resources/dp/dp1-fullstack.yaml) - Data Project 1 Resources [Template](https://s3.amazonaws.com/ds2022-resources/dp/dp1-fullstack.yaml)
 
 Notes about this template:
 
@@ -250,10 +255,11 @@ In your FastAPI application, add the following line to the `requirements.txt` fi
 
 To develop locally you will also need to install that package in your local environment using `pip`, `pip3`, `pipenv install`, etc.
 
-At the top of your FastAPI code, import the package:
+At the top of your FastAPI code, import the package and its error handler:
 
 ```
 import mysql.connector
+from mysql.connector import Error
 ```
 
 ### 2. Set up your connection string
@@ -269,11 +275,13 @@ DB = "xxxxx"
 
 Replace the DB name with the name of your database. The password (DBPASS) is the most sensitive piece of the connection, and should be passed into your application as an environment variable.
 
-Find the password value from Canvas and set it in your local environment using the command-line shell:
+Find the password value from Canvas and set it in your local environment using the command-line shell. Use single quotes around environment variables:
 
 ```
 export DBPASS='xxxxxxxxx'
 ```
+
+> **NOTE:** There is a dollar sign `$` in the password, which as a special character can be misread. The best way to avoid this is to wrap any environment variable in SINGLE quotes. If you use double quotes you will need to "escape" this special character with a `\` before it.
 
 Finally, bring all of these elements together into a single DB connection string, and create a cursor using that:
 
@@ -282,15 +290,41 @@ db = mysql.connector.connect(user=DBUSER, host=DBHOST, password=DBPASS, database
 cur=db.cursor()
 ```
 
+> **UPDATE**: To fix recurring broken DB connections, put your DB connection string and cursor within each FastAPI function. See below.
+
+
 Try running your application and see if you encounter errors. Debug as necessary.
 
-### 3. Create a query within a FastAPI route/endpoint
+### 3. Enable CORS in your FastAPI application
+
+**CORS** (Cross-Origin Resource Sharing) is a security model that limits what systems are allowed to communicate with an API. For our purposes we want to allow ALL connections. 
+
+To set this up, insert this block below your API definition. Find this line near the top of `app/main.py` in your FastAPI:
+```
+app = FastAPI()
+```
+Add this code to it:
+```
+app = FastAPI()
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+CORS is now enabled on all of your resources, methods and origins (external connections that want to query your API).
+
+### 4. Create a query within a FastAPI route/endpoint
 
 Here is the code for the `/genres` endpoint. Paste this into your FastAPI application and test:
 
 ```
-@app.route('/genres', methods=['GET'], cors=True)
+@app.get('/genres')
 def get_genres():
+    db = mysql.connector.connect(user=DBUSER, host=DBHOST, password=DBPASS, database=DB)
+    cur=db.cursor()
     query = "SELECT * FROM genres ORDER BY genreid;"
     try:    
         cur.execute(query)
@@ -299,25 +333,25 @@ def get_genres():
         json_data=[]
         for result in results:
             json_data.append(dict(zip(headers,result)))
-        output = json.dumps(json_data)
-        return(output)
-    except mysql.connector.Error as e:
-        print("MySQL Error: ", str(e))
-        return None
-    cur.close()
+        cur.close()
+        db.close()
+        return(json_data)
+    except Error as e:
+        cur.close()
+        db.close()
+        return {"Error": "MySQL Error: " + str(e)}
 ```
 
 A few notes about the block above:
 
-- FastAPI requires the route decorator, which specifies the METHOD for that endpoint.
-- The `cors` value is unique to APIs, and indicates that other websites can fetch data from this API. (This is desired.)
-- The function associated with the decorator takes no parameters.
+- FastAPI requires a method decorator. You do not need additional method or cors attributes in it.
+- The function associated with the decorator takes no parameters and must be uniquely named from other functions.
+- The DB connection and cursor are created within each function, and the cursor and DB connection are closed before any return statement.
 - The query is standard SQL with no parameters or string replacement.
-- The `try` block executes the SQL using the cursor, creates a header row, fetches all results, then loads the headers and values as a dictionary in each row. It is then output as JSON and returned.
-- Generic error handling is in place to display any connection or query issues.
-- Note the cursor is closed at the end of each function.
+- The `try` block executes the SQL using the cursor, creates a header row, fetches all results, then loads the headers and values as a dictionary in each row. It is automatically formatted as JSON and returned.
+- Generic error handling is in place to display any connection or query issues. Any error will be displayed as API output.
 
-### 4. Create the `/songs` endpoint in your API
+### 5. Create the `/songs` endpoint in your API
 
 Based on the code above, create another endpoint and function for the `/songs` endpoint. This should return values like [**this**](https://bv1e9klemd.execute-api.us-east-1.amazonaws.com/api/songs).
 
@@ -337,6 +371,10 @@ Try modifying values within the existing record, to see if they are reflected in
 
 Once you are happy with your results, add, commit, and push your code to GitHub. Your FastAPI container should build successfully based on your work in Lab 6.
 
+[![DP1 Step 4](https://s3.amazonaws.com/nem2p-dp1-spotify/images/ds2022-dp1-step4.png)](https://www.youtube.com/watch?v=XhTvEHg1esE)
+
+> **UPDATE**: [Click here](https://github.com/nmagee/fastapi-demo/blob/dp1/app/main.py) if you need to see a working version of this file.
+
 ## STEP FIVE - Deploy your API in Amazon EC2
 
 Shell into the EC2 instance created above in Step Two. The default user is `ubuntu`, and the connection looks something like:
@@ -352,8 +390,10 @@ Finally, using the full container image name, run the container in detached mode
 **Be sure to pass in the `DBPASS` value as an environment variable**, since that is the last piece your application needs in order to connect to the database.
 
     docker run -d -p 80:80 \
-      -e DBPASS="xxxxxx" \
+      -e DBPASS='xxxxxx' \
       ghcr.io/xxxx/fastapi-demo:1.17
+
+**BE SURE TO USE SINGLE QUOTES AROUND YOUR ENV VARIABLE OR ESCAPE THE DOLLAR SIGN IN THE PASSWORD** with `\$` when you run this command.
 
 Issue this command to see if your container is running and get its Container ID:
 
@@ -365,13 +405,17 @@ If you want to see the output logs of the container as it runs, specify the cont
 
 To stop the container:
 
-    docker stop zzzzz
+    docker stop zzzzzz
 
 #### Test Your EC2-based API
 
 Open a browser tab to the IP address of your EC2 instance. You should hopefully see a `{"hello":"world"}` message or something similar. 
 
-Go to your `/songs` endpoint to see if you have good results.
+> **UPDATE**: If you see nothing when you try to view your EC2 instance in the browser, make sure you are trying to open http://12.34.56.78/ with HTTP instead of HTTPS in the address. HTTPS will not work. Also be sure you copy the correct URL when pasting this value into your `index.html` file below in Step 6.
+
+Go to your `/genres` and `/songs` endpoints to see if you have good results.
+
+[![DP1 Step 5](https://s3.amazonaws.com/nem2p-dp1-spotify/images/ds2022-dp1-step5.png)](https://www.youtube.com/watch?v=SG_G2afxgg4)
 
 ## STEP SIX - Set up and test your Web UI
 
@@ -399,6 +443,8 @@ Let's recap what you have built so far:
 - You have customized a web interface pointed to your API and deployed it to S3.
 
 The final, missing, piece is an ingestion process to detect the arrival of new songs in your bucket. This is where we will use Chalice to create a Lambda function that listens to your bucket.
+
+[![DP1 Step 6](https://s3.amazonaws.com/nem2p-dp1-spotify/images/ds2022-dp1-step6.png)](https://www.youtube.com/watch?v=EBRqUJS0zWQ)
 
 ## STEP SEVEN - Create a Lambda Function that Detects New Songs
 
@@ -516,10 +562,14 @@ def s3_handler(event):
       song_vals = (TITLE, ALBUM, ARTIST, YEAR, MP3, IMG, GENRE)
       cur.execute(add_song, song_vals)
       db.commit()
+      cur.close()
+      db.close()
 
     except mysql.connector.Error as err:
       app.log.error("Failed to insert song: %s", err)
       db.rollback()
+      cur.close()
+      db.close()
 
 # perform a suffix match against supported extensions
 def _is_json(key):
@@ -529,6 +579,7 @@ def _is_json(key):
 1. Be sure to update the name of your S3 bucket.
 2. Update the `baseurl` of your S3 website address.
 3. Parse the song metadata extracted into `data`.
+4. Note that the DB connection and cursor are only needed once, since a Lambda function executes briefly and therefore cannot maintain a long-running DB connection. Close those connections whether successful or excepted.
 
 ### Deploy Your Lambda Function
 
@@ -575,3 +626,12 @@ While completing the points above will earn up to 15 points total, you can have 
 
 - If you commit database credentials to git/GitHub and push them, you will lose 3 points.
 - If songs appear in your web interface but cannot be played, you will lose 1 point.
+
+
+## Cleanup
+
+**After your project is graded** (once you receive your grade in Canvas), tearing down your solution is simple:
+
+1. Save/commit any code you want to save. Be careful NOT to commit any passwords or credentials.
+2. [Empty your S3 bucket](https://us-east-1.console.aws.amazon.com/s3/home?region=us-east-1) using either the CLI or the AWS Console.
+3. [Delete the CloudFormation stack](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/?filteringText=&filteringStatus=active&viewNested=true) you used to deploy resources for this project.
